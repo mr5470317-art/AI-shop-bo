@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from google import genai
+import google.generativeai as genai
 from aiogram import Bot, Dispatcher, types as aiogram_types, F
 from aiogram.filters import Command
 
@@ -17,8 +17,17 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# Корректная инициализация клиента с явным ключом
-client = genai.Client(api_key=GEMINI_API_KEY.strip())
+# Настройка классического SDK
+genai.configure(api_key=GEMINI_API_KEY.strip())
+
+# Используем модель с явным префиксом
+generation_config = {
+    "temperature": 0.4,
+}
+model = genai.GenerativeModel(
+    model_name="models/gemini-1.5-flash",
+    generation_config=generation_config
+)
 
 def get_products_data():
     try:
@@ -54,14 +63,9 @@ async def handle_message(message: aiogram_types.Message):
 """
 
     try:
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=message.text,
-            config={
-                'system_instruction': system_instruction,
-                'temperature': 0.4,
-            }
-        )
+        # Передаем системную инструкцию и текст вместе
+        prompt = f"{system_instruction}\n\nПовідомлення клієнта: {message.text}"
+        response = model.generate_content(prompt)
         
         reply_text = response.text
         await message.answer(reply_text)
@@ -82,4 +86,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
