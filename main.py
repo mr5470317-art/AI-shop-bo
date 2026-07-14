@@ -12,7 +12,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MY_TELEGRAM_ID = int(os.getenv("MY_TELEGRAM_ID", 0))
 
 if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
-    raise ValueError("Не найдены TELEGRAM_TOKEN или GEMINI_API_KEY в переменных окружения!")
+    raise ValueError("Нет токенов в настройках!")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
@@ -22,75 +22,44 @@ def get_products_data():
         with open("products.txt", "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        return "Список товарів наразі порожній."
+        return "Асортимент пустий."
 
 @dp.message(Command("start"))
 async def cmd_start(message: aiogram_types.Message):
-    if MY_TELEGRAM_ID and message.from_user.id == MY_TELEGRAM_ID:
-        await message.answer("Привіт, адміне! Це службовий чат.")
-    else:
-        await message.answer("Привіт! Я твій інтелектуальний помічник-консультант StyleHub.")
+    await message.answer("Привіт! Я консультант StyleHub.")
 
 @dp.message(F.text)
 async def handle_message(message: aiogram_types.Message):
-    user_id = message.from_user.id
-    
-    if MY_TELEGRAM_ID and user_id == MY_TELEGRAM_ID:
-        await message.answer("Це службовий чат адміністратора. Клієнтів тут немає.")
-        return
-
     products_info = get_products_data()
     
-    system_instruction = f"""Ти — найкращий консультант StyleHub. Твій досвід — 10 років у продажах одягу. 
-Асортимент: {products_info}
-
-Стиль спілкування:
-1. Тільки чиста грамотна ввічлива українська мова. Жодних дивних зворотів чи сленгу.
-2. Якщо клієнт запитує про товар — давай чітку відповідь.
-3. ОФОРМЛЕННЯ ЗАМОВЛЕННЯ: Якщо клієнт погоджується купувати, попроси номер телефону та адресу доставки. Як тільки він надасть дані, обов'язково відповідай покупцю фразою "ЗАМОВЛЕННЯ ПРИЙНЯТО" і додай: "Дякуємо за покупку, нам було приємно з вами працювати!"
-"""
-
-    # Формируем запрос напрямую через актуальный стабильный адрес Google API
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY.strip()}"
+    # Инструкция для бота
+    system_instruction = f"Ти — консультант StyleHub. Асортимент: {products_info}. Пиши грамотною українською."
+    
+    # Используем модель 002 — это железный стандарт на сегодня
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent?key={GEMINI_API_KEY.strip()}"
     
     payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": f"{system_instruction}\n\nПитання клієнта: {message.text}"}]
-            }
-        ]
+        "contents": [{
+            "parts": [{"text": f"{system_instruction}\n\nКлієнт: {message.text}"}]
+        }]
     }
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as resp:
-                result_json = await resp.json()
+                data = await resp.json()
                 
-                if resp.status != 200:
-                    error_msg = result_json.get("error", {}).get("message", "Невідома помилка API")
-                    logging.error(f"Google API Error {resp.status}: {error_msg}")
-                    await message.answer(f"Помилка API: {error_msg}")
-                    return
-
-                # Извлекаем ответ из структуры JSON
-                reply_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
-                await message.answer(reply_text)
-
-                if "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
-                    if MY_TELEGRAM_ID != 0:
-                        await bot.send_message(
-                            chat_id=MY_TELEGRAM_ID, 
-                            text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nВідповідь бота:\n{reply_text}"
-                        )
+                if resp.status == 200:
+                    reply_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    await message.answer(reply_text)
+                else:
+                    await message.answer(f"Помилка: {data.get('error', {}).get('message', 'Невідома')}")
                 
     except Exception as e:
-        logging.error(f"Ошибка при запросе к Gemini API: {e}")
-        await message.answer(f"Помилка: {str(e)}")
+        await message.answer(f"Критична помилка: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
