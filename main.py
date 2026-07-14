@@ -54,7 +54,8 @@ async def handle_message(message: types.Message):
     try:
         # Запрос к Groq API через совместимый клиент OpenAI
         response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            model="model="llama-3.1-70b-versatile",
+,
             max_tokens=1000,
             messages=[
                 {"role": "system", "content": system_prompt},
