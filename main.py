@@ -34,8 +34,8 @@ async def handle_message(message: aiogram_types.Message):
     try:
         completion = await client.chat.completions.create(
             # Можешь менять модель на любую другую из списка OpenRouter
-            model="google/gemini-2.0-flash-lite-preview-02-05:free", 
-            messages=[
+             model="meta-llama/llama-3.3-70b-instruct:free"
+            
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": message.text}
             ]
