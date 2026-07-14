@@ -17,7 +17,7 @@ if not TELEGRAM_TOKEN or not OPENROUTER_API_KEY:
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# Отключаем авто-повторы, чтобы не было долгих зависаний
+# Отключаем авто-повторы
 client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY.strip(),
@@ -40,8 +40,9 @@ async def handle_message(message: aiogram_types.Message):
     system_instruction = f"Ти — консультант StyleHub. Асортимент: {get_products_data()}. Відповідай грамотною українською мовою."
 
     try:
+        # Используем легкую и стабильную бесплатную модель openchat
         completion = await client.chat.completions.create(
-            model="mistralai/mistral-nemo:free", 
+            model="openchat/openchat-7b:free", 
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": message.text}
