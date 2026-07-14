@@ -4,22 +4,25 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from anthropic import Anthropic
+from openai import OpenAI  # Меняем на клиент OpenAI, так как Groq совместим с ним
 
 # Логирование для сервера
 logging.basicConfig(level=logging.INFO)
 
 # Безопасно подтягиваем токены из переменных окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # Переименовали переменную под Groq
 
-if not TELEGRAM_TOKEN or not ANTHROPIC_API_KEY:
-    raise ValueError("Не найдены TELEGRAM_TOKEN или ANTHROPIC_API_KEY в переменных окружения!")
+if not TELEGRAM_TOKEN or not GROQ_API_KEY:
+    raise ValueError("Не найдены TELEGRAM_TOKEN или GROQ_API_KEY в переменных окружения!")
 
-# Инициализация Телеграм и клиента Claude
+# Инициализация Телеграм и клиента Groq
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
-client = Anthropic(api_key=ANTHROPIC_API_KEY)
+client = OpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1"
+)
 
 # Функция чтения файла с товарами
 def get_products_data():
@@ -39,7 +42,7 @@ async def cmd_start(message: types.Message):
 async def handle_message(message: types.Message):
     products_info = get_products_data()
     
-    # Системный промпт для настройки характера Claude
+    # Системный промпт (для Groq передаем системное сообщение в массиве messages)
     system_prompt = f"""Ти — професійний, ввічливий та корисний продавець-консультант магазину.
 Ось актуальна інформація про товари, ціни та наявність:
 {products_info}
@@ -50,21 +53,21 @@ async def handle_message(message: types.Message):
 3. Веди діалог природно, допомагай підібрати товар та заохочуй до покупки."""
 
     try:
-        # Запрос к Claude API (используем быструю и умную модель Haiku)
-        response = client.messages.create(
-            model="claude-3-5-haiku-20241022",
+        # Запрос к Groq API (используем быструю модель Llama 3.1)
+        response = client.chat.completions.create(
+            model="llama-3.1-70b-versatile",
             max_tokens=1000,
-            system=system_prompt,
             messages=[
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message.text}
             ]
         )
         
-        reply_text = response.content[0].text
+        reply_text = response.choices[0].message.content
         await message.answer(reply_text)
         
     except Exception as e:
-        logging.error(f"Ошибка при запросе к Claude API: {e}")
+        logging.error(f"Ошибка при запросе к Groq API: {e}")
         await message.answer("Вибачте, сталася тимчасова помилка зв'язку зі штучним інтелектом. Спробуйте пізніше.")
 
 # Запуск поллинга
