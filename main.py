@@ -52,10 +52,9 @@ async def handle_message(message: types.Message):
 3. Веди діалог природно, допомагай підібрати товар та заохочуй до покупки."""
 
     try:
-        # Запрос к Groq API через совместимый клиент OpenAI
+        # Запрос к Groq API (используем стабильную быструю модель)
         response = client.chat.completions.create(
-            model="model="llama-3.1-70b-versatile",
-,
+            model="llama-3.1-8b-instant",
             max_tokens=1000,
             messages=[
                 {"role": "system", "content": system_prompt},
