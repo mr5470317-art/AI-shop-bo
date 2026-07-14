@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 from google import genai
+from google.genai import types as genai_types
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 
@@ -17,7 +18,7 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# Инициализация клиента нового SDK google-genai
+# Инициализация нового клиента google-genai
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Хранилище активных чат-сессий для каждого пользователя
@@ -42,13 +43,13 @@ async def cmd_start(message: types.Message):
 2. Якщо клієнт запитує про товар — давай чітку відповідь.
 3. ОФОРМЛЕННЯ ЗАМОВЛЕННЯ: Якщо клієнт погоджується купувати, попроси номер телефону та адресу доставки. Як тільки він надасть дані, обов'язково відповідай покупцю фразою "ЗАМОВЛЕННЯ ПРИЙНЯТО" і додай: "Дякуємо за покупку, нам було приємно з вами працювати!"
 """
-    # Создаем независимую чат-сессию для пользователя с системной инструкцией
+    # Создаем стабильную чат-сессию через клиент с актуальной универсальной моделью
     user_chats[message.from_user.id] = client.chats.create(
-        model='gemini-1.5-flash',
-        config={
-            'system_instruction': system_instruction,
-            'temperature': 0.4,
-        }
+        model='gemini-2.5-flash',
+        config=genai_types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=0.4,
+        )
     )
 
     if MY_TELEGRAM_ID and message.from_user.id == MY_TELEGRAM_ID:
@@ -64,17 +65,19 @@ async def handle_message(message: types.Message):
         await message.answer("Це службовий чат адміністратора. Клієнтів тут немає.")
         return
 
-    # Если сессия стерлась (перезапуск скрипта), создаем её заново
     if user_id not in user_chats:
         products_info = get_products_data()
         system_instruction = f"Ти — консультант StyleHub. Асортимент: {products_info}. Пиши грамотною українською."
         user_chats[user_id] = client.chats.create(
-            model='gemini-1.5-flash',
-            config={'system_instruction': system_instruction, 'temperature': 0.4}
+            model='gemini-2.5-flash',
+            config=genai_types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.4
+            )
         )
 
     try:
-        # Отправляем сообщение в текущую чат-сессию (она сама помнит историю)
+        # Отправляем сообщение в текущую сессию
         chat = user_chats[user_id]
         response = chat.send_message(message.text)
         
