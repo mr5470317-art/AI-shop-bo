@@ -1,17 +1,16 @@
-
 import os
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from openai import OpenAI  # Меняем на клиент OpenAI, так как Groq совместим с ним
+from openai import OpenAI
 
 # Логирование для сервера
 logging.basicConfig(level=logging.INFO)
 
 # Безопасно подтягиваем токены из переменных окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # Переименовали переменную под Groq
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("Не найдены TELEGRAM_TOKEN или GROQ_API_KEY в переменных окружения!")
@@ -42,7 +41,7 @@ async def cmd_start(message: types.Message):
 async def handle_message(message: types.Message):
     products_info = get_products_data()
     
-    # Системный промпт (для Groq передаем системное сообщение в массиве messages)
+    # Системный промпт для настройки характера ассистента
     system_prompt = f"""Ти — професійний, ввічливий та корисний продавець-консультант магазину.
 Ось актуальна інформація про товари, ціни та наявність:
 {products_info}
@@ -53,7 +52,7 @@ async def handle_message(message: types.Message):
 3. Веди діалог природно, допомагай підібрати товар та заохочуй до покупки."""
 
     try:
-        # Запрос к Groq API (используем быструю модель Llama 3.1)
+        # Запрос к Groq API через совместимый клиент OpenAI
         response = client.chat.completions.create(
             model="llama-3.1-70b-versatile",
             max_tokens=1000,
@@ -68,7 +67,8 @@ async def handle_message(message: types.Message):
         
     except Exception as e:
         logging.error(f"Ошибка при запросе к Groq API: {e}")
-        await message.answer("Вибачте, сталася тимчасова помилка зв'язку зі штучним інтелектом. Спробуйте пізніше.")
+        # Выводим реальный текст ошибки в чат для отладки
+        await message.answer(f"Помилка: {str(e)}")
 
 # Запуск поллинга
 async def main():
