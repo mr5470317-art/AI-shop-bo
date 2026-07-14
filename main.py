@@ -10,8 +10,8 @@ logging.basicConfig(level=logging.INFO)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Твой юзернейм из переменных окружения (например: @my_username или без знака @)
-MY_TELEGRAM_USERNAME = os.getenv("MY_TELEGRAM_USERNAME", "").replace("@", "").lower()
+# Твой цифровой ID из переменных окружения Railway (или можно подставить число для теста)
+MY_TELEGRAM_ID = int(os.getenv("MY_TELEGRAM_ID", 0))
 
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("Не найдены TELEGRAM_TOKEN или GROQ_API_KEY в переменных окружения!")
@@ -23,8 +23,7 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
-# Переменная для динамического сохранения твоего ID после /start
-my_real_chat_id = None
+# Память диалогов для каждого пользователя
 user_histories = {}
 
 def get_products_data():
@@ -36,15 +35,9 @@ def get_products_data():
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    global my_real_chat_id
-    user_id = message.from_user.id
-    user_histories[user_id] = []
-    
-    # Автоматически определяем, что это ты по твоему юзернейму
-    if MY_TELEGRAM_USERNAME and message.from_user.username and message.from_user.username.lower() == MY_TELEGRAM_USERNAME:
-        my_real_chat_id = user_id
-        await message.json if hasattr(message, 'json') else None
-        await message.answer("Привіт, босоту! Твій юзернейм розпізнано, тепер я надсилатиму сюди замовлення.")
+    user_histories[message.from_user.id] = []
+    if MY_TELEGRAM_ID and message.from_user.id == MY_TELEGRAM_ID:
+        await message.answer("Привіт, админе! Це службовий чат. Сюди надходитимуть сповіщення про замовлення.")
     else:
         await message.answer("Привіт! Я твій інтелектуальний помічник-консультант. Готовий допомагати з вибором товарів.")
 
@@ -52,8 +45,8 @@ async def cmd_start(message: types.Message):
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
     
-    # Если это пишет владелец (ты) и случайно триггернул команду
-    if my_real_chat_id and user_id == my_real_chat_id:
+    # Защита, чтобы админ случайно не вел диалог как клиент сам с собой
+    if MY_TELEGRAM_ID and user_id == MY_TELEGRAM_ID:
         await message.answer("Це службовий чат адміністратора. Клієнтів тут немає.")
         return
 
@@ -62,6 +55,7 @@ async def handle_message(message: types.Message):
 
     user_histories[user_id].append({"role": "user", "content": message.text})
     
+    # Ограничиваем историю 10 сообщениями
     if len(user_histories[user_id]) > 10:
         user_histories[user_id] = user_histories[user_id][-10:]
 
@@ -77,7 +71,7 @@ async def handle_message(message: types.Message):
 3. Якщо клієнт запитує про розмір чи товар - давай чітку відповідь.
 4. Не вигадуй зайвих питань, якщо клієнт уже назвав товар.
 5. Завжди будь ввічливим, але тримай дистанцію професіонала.
-6. Якщо клієнт остаточно погоджується на покупку/замовлення, обов'язково у своїй відповіді напиши фразу "ЗАМОВЛЕННЯ ПРИЙНЯТО" та попроси залишити контактні дані (номер телефону)."""
+6. ОФОРМЛЕННЯ ЗАМОВЛЕННЯ: Якщо клієнт погоджується купувати, чітко попроси його написати ДВІ речі: номер телефону та адресу доставки (місто, відділення пошти). Як тільки він надасть ці дані, ти обов'язково відповідаєш покупцю фразою "ЗАМОВЛЕННЯ ПРИЙНЯТО" і дякуєш за покупку."""
 
     try:
         messages = [{"role": "system", "content": system_prompt}] + user_histories[user_id]
@@ -93,14 +87,14 @@ async def handle_message(message: types.Message):
         
         await message.answer(reply_text)
 
-        # Отправка заказа администратору
+        # Отправка уведомления продавцу (тебе) в личку
         if "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
-            order_details = "\n".join([f"{msg['role']}: {msg['content']}" for msg in user_histories[user_id][-4:]])
+            order_details = "\n".join([f"{msg['role']}: {msg['content']}" for msg in user_histories[user_id][-5:]])
             
-            if my_real_chat_id:
+            if MY_TELEGRAM_ID != 0:
                 await bot.send_message(
-                    chat_id=my_real_chat_id, 
-                    text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nОстанні повідомлення:\n{order_details}"
+                    chat_id=MY_TELEGRAM_ID, 
+                    text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nДані з чату:\n{order_details}"
                 )
             
     except Exception as e:
