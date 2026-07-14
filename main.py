@@ -1,62 +1,50 @@
 import os
 import asyncio
 import logging
-import aiohttp
+from openai import AsyncOpenAI
 from aiogram import Bot, Dispatcher, types as aiogram_types, F
 from aiogram.filters import Command
 
 logging.basicConfig(level=logging.INFO)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") # Твой ключ с OpenRouter
 MY_TELEGRAM_ID = int(os.getenv("MY_TELEGRAM_ID", 0))
-
-if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
-    raise ValueError("Нет токенов в настройках!")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
+
+# Подключаемся к OpenRouter как к OpenAI
+client = AsyncOpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY
+)
 
 def get_products_data():
     try:
         with open("products.txt", "r", encoding="utf-8") as f:
             return f.read()
-    except FileNotFoundError:
+    except:
         return "Асортимент пустий."
-
-@dp.message(Command("start"))
-async def cmd_start(message: aiogram_types.Message):
-    await message.answer("Привіт! Я консультант StyleHub.")
 
 @dp.message(F.text)
 async def handle_message(message: aiogram_types.Message):
-    products_info = get_products_data()
-    
-    # Инструкция для бота
-    system_instruction = f"Ти — консультант StyleHub. Асортимент: {products_info}. Пиши грамотною українською."
-    
-    # Используем модель 002 — это железный стандарт на сегодня
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent?key={GEMINI_API_KEY.strip()}"
-    
-    payload = {
-        "contents": [{
-            "parts": [{"text": f"{system_instruction}\n\nКлієнт: {message.text}"}]
-        }]
-    }
+    system_instruction = f"Ти — консультант StyleHub. Асортимент: {get_products_data()}. Пиши грамотною українською."
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload) as resp:
-                data = await resp.json()
-                
-                if resp.status == 200:
-                    reply_text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    await message.answer(reply_text)
-                else:
-                    await message.answer(f"Помилка: {data.get('error', {}).get('message', 'Невідома')}")
-                
+        completion = await client.chat.completions.create(
+            # Можешь менять модель на любую другую из списка OpenRouter
+            model="google/gemini-2.0-flash-lite-preview-02-05:free", 
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": message.text}
+            ]
+        )
+        
+        reply_text = completion.choices[0].message.content
+        await message.answer(reply_text)
     except Exception as e:
-        await message.answer(f"Критична помилка: {str(e)}")
+        await message.answer(f"Помилка OpenRouter: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
