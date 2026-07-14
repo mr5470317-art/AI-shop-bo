@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-import google.generativeai as genai
+import aiohttp
 from aiogram import Bot, Dispatcher, types as aiogram_types, F
 from aiogram.filters import Command
 
@@ -16,18 +16,6 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
-
-# Настройка классического SDK
-genai.configure(api_key=GEMINI_API_KEY.strip())
-
-# Используем модель с явным префиксом
-generation_config = {
-    "temperature": 0.4,
-}
-model = genai.GenerativeModel(
-    model_name="models/gemini-1.5-flash",
-    generation_config=generation_config
-)
 
 def get_products_data():
     try:
@@ -62,21 +50,40 @@ async def handle_message(message: aiogram_types.Message):
 3. ОФОРМЛЕННЯ ЗАМОВЛЕННЯ: Якщо клієнт погоджується купувати, попроси номер телефону та адресу доставки. Як тільки він надасть дані, обов'язково відповідай покупцю фразою "ЗАМОВЛЕННЯ ПРИЙНЯТО" і додай: "Дякуємо за покупку, нам було приємно з вами працювати!"
 """
 
-    try:
-        # Передаем системную инструкцию и текст вместе
-        prompt = f"{system_instruction}\n\nПовідомлення клієнта: {message.text}"
-        response = model.generate_content(prompt)
-        
-        reply_text = response.text
-        await message.answer(reply_text)
+    # Формируем запрос напрямую через актуальный стабильный адрес Google API
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY.strip()}"
+    
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": f"{system_instruction}\n\nПитання клієнта: {message.text}"}]
+            }
+        ]
+    }
 
-        if "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
-            if MY_TELEGRAM_ID != 0:
-                await bot.send_message(
-                    chat_id=MY_TELEGRAM_ID, 
-                    text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nВідповідь бота:\n{reply_text}"
-                )
-            
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as resp:
+                result_json = await resp.json()
+                
+                if resp.status != 200:
+                    error_msg = result_json.get("error", {}).get("message", "Невідома помилка API")
+                    logging.error(f"Google API Error {resp.status}: {error_msg}")
+                    await message.answer(f"Помилка API: {error_msg}")
+                    return
+
+                # Извлекаем ответ из структуры JSON
+                reply_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
+                await message.answer(reply_text)
+
+                if "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
+                    if MY_TELEGRAM_ID != 0:
+                        await bot.send_message(
+                            chat_id=MY_TELEGRAM_ID, 
+                            text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nВідповідь бота:\n{reply_text}"
+                        )
+                
     except Exception as e:
         logging.error(f"Ошибка при запросе к Gemini API: {e}")
         await message.answer(f"Помилка: {str(e)}")
@@ -86,3 +93,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
