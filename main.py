@@ -17,11 +17,8 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# Инициализация клиента нового SDK google-genai
+# Инициализация клиента google-genai
 client = genai.Client(api_key=GEMINI_API_KEY)
-
-# Память диалогов пользователей
-user_histories = {}
 
 def get_products_data():
     try:
@@ -32,7 +29,6 @@ def get_products_data():
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    user_histories[message.from_user.id] = []
     if MY_TELEGRAM_ID and message.from_user.id == MY_TELEGRAM_ID:
         await message.answer("Привіт, адміне! Це службовий чат.")
     else:
@@ -46,16 +42,6 @@ async def handle_message(message: types.Message):
         await message.answer("Це службовий чат адміністратора. Клієнтів тут немає.")
         return
 
-    if user_id not in user_histories:
-        user_histories[user_id] = []
-
-    # Добавляем сообщение пользователя в историю
-    user_histories[user_id].append({"role": "user", "parts": [message.text]})
-    
-    # Ограничиваем историю 10 сообщениями
-    if len(user_histories[user_id]) > 10:
-        user_histories[user_id] = user_histories[user_id][-10:]
-
     products_info = get_products_data()
     
     system_instruction = f"""Ти — найкращий консультант StyleHub. Твій досвід — 10 років у продажах одягу. 
@@ -68,10 +54,10 @@ async def handle_message(message: types.Message):
 """
 
     try:
-        # Используем гарантированно доступную и актуальную модель gemini-2.0-flash
+        # Отправляем текущую фразу пользователя напрямую в модель
         response = client.models.generate_content(
             model='gemini-2.0-flash',
-            contents=user_histories[user_id],
+            contents=message.text,
             config={
                 'system_instruction': system_instruction,
                 'temperature': 0.4,
@@ -79,18 +65,14 @@ async def handle_message(message: types.Message):
         )
         
         reply_text = response.text
-        user_histories[user_id].append({"role": "model", "parts": [reply_text]})
-        
         await message.answer(reply_text)
 
         # Уведомление продавцу
         if "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
-            order_details = "\n".join([f"{msg['role']}: {msg['parts'][0]}" for msg in user_histories[user_id][-5:]])
-            
             if MY_TELEGRAM_ID != 0:
                 await bot.send_message(
                     chat_id=MY_TELEGRAM_ID, 
-                    text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nДані з чату:\n{order_details}"
+                    text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nВідповідь бота:\n{reply_text}"
                 )
             
     except Exception as e:
