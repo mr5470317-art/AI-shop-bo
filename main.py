@@ -1,59 +1,39 @@
 import os
 import asyncio
 import logging
-from openai import AsyncOpenAI
+from groq import AsyncGroq # Используем библиотеку groq
 from aiogram import Bot, Dispatcher, types as aiogram_types, F
 from aiogram.filters import Command
 
 logging.basicConfig(level=logging.INFO)
 
+# Твой ключ с console.groq.com
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") 
-MY_TELEGRAM_ID = int(os.getenv("MY_TELEGRAM_ID", 0))
-
-if not TELEGRAM_TOKEN or not OPENROUTER_API_KEY:
-    raise ValueError("Не найдены переменные окружения TELEGRAM_TOKEN или OPENROUTER_API_KEY!")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# Отключаем авто-повторы
-client = AsyncOpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY.strip(),
-    max_retries=0
-)
-
-def get_products_data():
-    try:
-        with open("products.txt", "r", encoding="utf-8") as f:
-            return f.read()
-    except:
-        return "Асортимент наразі порожній."
-
-@dp.message(Command("start"))
-async def cmd_start(message: aiogram_types.Message):
-    await message.answer("Привіт! Я твій інтелектуальний помічник-консультант StyleHub.")
+# Инициализация Groq
+client = AsyncGroq(api_key=GROQ_API_KEY.strip())
 
 @dp.message(F.text)
 async def handle_message(message: aiogram_types.Message):
-    system_instruction = f"Ти — консультант StyleHub. Асортимент: {get_products_data()}. Відповідай грамотною українською мовою."
+    system_instruction = "Ти — професійний консультант StyleHub. Твої відповіді мають бути літературною, грамотною українською мовою. Будь ввічливим."
 
     try:
-        # Используем легкую и стабильную бесплатную модель openchat
-        completion = await client.chat.completions.create(
-            model="openchat/openchat-7b:free", 
+        chat_completion = await client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": message.text}
-            ]
+            ],
+            model="llama-3.3-70b-versatile", # Самая мощная модель, которая понимает укр идеально
+            temperature=0.5
         )
         
-        reply_text = completion.choices[0].message.content
-        await message.answer(reply_text)
+        await message.answer(chat_completion.choices[0].message.content)
     except Exception as e:
-        logging.error(f"Ошибка OpenRouter: {e}")
-        await message.answer(f"Помилка сервера: {str(e)}")
+        await message.answer(f"Помилка Groq: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
