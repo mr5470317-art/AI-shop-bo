@@ -40,8 +40,7 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text)
 async def handle_message(message: types.Message):
     products_info = get_products_data()
-    
-    # Системный промпт для настройки характера ассистента
+# Системный промпт для настройки характера ассистента
         system_prompt = f"""Ти — професійний менеджер з продажу брендового одягу.
 Ось актуальна інформація про товари:
 {products_info}
