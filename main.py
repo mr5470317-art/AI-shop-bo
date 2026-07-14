@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 from google import genai
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types as aiogram_types, F
 from aiogram.filters import Command
 
 logging.basicConfig(level=logging.INFO)
@@ -17,8 +17,8 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# Инициализация клиента google-genai
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Корректная инициализация клиента с явным ключом
+client = genai.Client(api_key=GEMINI_API_KEY.strip())
 
 def get_products_data():
     try:
@@ -28,14 +28,14 @@ def get_products_data():
         return "Список товарів наразі порожній."
 
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message):
+async def cmd_start(message: aiogram_types.Message):
     if MY_TELEGRAM_ID and message.from_user.id == MY_TELEGRAM_ID:
         await message.answer("Привіт, адміне! Це службовий чат.")
     else:
         await message.answer("Привіт! Я твій інтелектуальний помічник-консультант StyleHub.")
 
 @dp.message(F.text)
-async def handle_message(message: types.Message):
+async def handle_message(message: aiogram_types.Message):
     user_id = message.from_user.id
     
     if MY_TELEGRAM_ID and user_id == MY_TELEGRAM_ID:
@@ -54,9 +54,8 @@ async def handle_message(message: types.Message):
 """
 
     try:
-        # Отправляем текущую фразу пользователя напрямую в модель
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash',
             contents=message.text,
             config={
                 'system_instruction': system_instruction,
@@ -67,7 +66,6 @@ async def handle_message(message: types.Message):
         reply_text = response.text
         await message.answer(reply_text)
 
-        # Уведомление продавцу
         if "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
             if MY_TELEGRAM_ID != 0:
                 await bot.send_message(
@@ -84,3 +82,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
