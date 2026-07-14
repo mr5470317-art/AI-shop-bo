@@ -1,30 +1,29 @@
 import os
 import asyncio
 import logging
+import google.generativeai as genai
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from openai import OpenAI
 
 logging.basicConfig(level=logging.INFO)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-# Твой цифровой ID из переменных окружения Railway (или можно подставить число для теста)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Убедись, что переменная называется так
 MY_TELEGRAM_ID = int(os.getenv("MY_TELEGRAM_ID", 0))
 
-if not TELEGRAM_TOKEN or not GROQ_API_KEY:
-    raise ValueError("Не найдены TELEGRAM_TOKEN или GROQ_API_KEY в переменных окружения!")
+if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
+    raise ValueError("Не найдены TELEGRAM_TOKEN или GEMINI_API_KEY!")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
-client = OpenAI(
-    api_key=GROQ_API_KEY,
-    base_url="https://api.groq.com/openai/v1"
-)
 
-# Память диалогов для каждого пользователя
-user_histories = {}
+# Настройка Gemini
+genai.configure(api_key=GEMINI_API_KEY)
+# Используем модель flash для скорости
+model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Память диалогов (для Gemini лучше использовать chat-сессии)
+user_chats = {}
 
 def get_products_data():
     try:
@@ -35,70 +34,53 @@ def get_products_data():
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    user_histories[message.from_user.id] = []
+    # Создаем новую чат-сессию для каждого пользователя
+    products_info = get_products_data()
+    system_prompt = f"""Ти — найкращий консультант StyleHub. Твій досвід — 10 років у продажах одягу. 
+    Твоя мова — грамотна, ввічлива українська мова. 
+    Ось асортимент: {products_info}
+    
+    Стиль: впевнений, професійний, без сленгу та суржику.
+    Якщо клієнт купує — попроси телефон та адресу. Після отримання напиши "ЗАМОВЛЕННЯ ПРИЙНЯТО. Дякуємо за покупку, нам було приємно з вами працювати!"""
+    
+    user_chats[message.from_user.id] = model.start_chat(history=[])
+    # Передаем системный контекст в историю чата
+    user_chats[message.from_user.id].send_message(f"Інструкція для тебе: {system_prompt}")
+
     if MY_TELEGRAM_ID and message.from_user.id == MY_TELEGRAM_ID:
-        await message.answer("Привіт, адміне! Це службовий чат. Сюди надходитимуть сповіщення про замовлення.")
+        await message.answer("Привіт, адміне!")
     else:
-        await message.answer("Привіт! Я твій інтелектуальний помічник-консультант. Готовий допомагати з вибором товарів.")
+        await message.answer("Привіт! Я твій консультант StyleHub. Чим можу допомогти?")
 
 @dp.message(F.text)
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
     
-    # Защита, чтобы админ случайно не вел диалог как клиент сам с собой
     if MY_TELEGRAM_ID and user_id == MY_TELEGRAM_ID:
-        await message.answer("Це службовий чат адміністратора. Клієнтів тут немає.")
         return
 
-    if user_id not in user_histories:
-        user_histories[user_id] = []
-
-    user_histories[user_id].append({"role": "user", "content": message.text})
-    
-    # Ограничиваем историю 10 сообщениями
-    if len(user_histories[user_id]) > 10:
-        user_histories[user_id] = user_histories[user_id][-10:]
-
-    products_info = get_products_data()
-    
-    system_prompt = f"""Ти — найкращий консультант StyleHub. Твій досвід — 10 років у продажах одягу. Твоя мова — це приклад ідеальної сучасної української ділової мови: грамотної, ввічливої та легкої для сприйняття. Ти не використовуєш складних конструкцій, а пишеш чітко, як людина людині.»:
-{products_info}
-
-Твій стиль спілкування:
-1. впевнений, український стиль, Тільки чиста українська мова.
-2. Жодних дивних зворотів, кальки з інших мов чи сленгу. 
-3. Якщо клієнт запитує про розмір чи товар - давай чітку відповідь.
-4. Завжди будь ввічливим, але тримай дистанцію професіонала.
-5. ОФОРМЛЕННЯ ЗАМОВЛЕННЯ: Якщо клієнт погоджується купувати, чітко попроси його написати ДВІ речі: номер телефону та адресу доставки (місто, відділення пошти). Як тільки він надасть ці дані, ти обов'язково відповідаєш покупцю фразою "ЗАМОВЛЕННЯ ПРИЙНЯТО" і додаєш ввічливу фразу: "Дякуємо за покупку, нам було приємно з вами працювати!"
-"""
+    if user_id not in user_chats:
+        await cmd_start(message)
+        return
 
     try:
-        messages = [{"role": "system", "content": system_prompt}] + user_histories[user_id]
-        
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            max_tokens=1000,
-            messages=messages
-        )
-        
-        reply_text = response.choices[0].message.content
-        user_histories[user_id].append({"role": "assistant", "content": reply_text})
+        # Отправляем сообщение в чат
+        chat = user_chats[user_id]
+        response = chat.send_message(message.text)
+        reply_text = response.text
         
         await message.answer(reply_text)
 
-        # Отправка уведомления продавцу (тебе) в личку
         if "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
-            order_details = "\n".join([f"{msg['role']}: {msg['content']}" for msg in user_histories[user_id][-5:]])
-            
             if MY_TELEGRAM_ID != 0:
                 await bot.send_message(
                     chat_id=MY_TELEGRAM_ID, 
-                    text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nДані з чату:\n{order_details}"
+                    text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\n{reply_text}"
                 )
             
     except Exception as e:
-        logging.error(f"Ошибка при запросе к Groq API: {e}")
-        await message.answer(f"Помилка: {str(e)}")
+        logging.error(f"Ошибка Gemini API: {e}")
+        await message.answer("Вибачте, виникла технічна помилка.")
 
 async def main():
     await dp.start_polling(bot)
