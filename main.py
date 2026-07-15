@@ -49,18 +49,14 @@ async def handle_message(message: aiogram_types.Message):
     user_id = message.from_user.id
     user_text = message.text
 
-    # Инициализируем историю для нового пользователя, если её нет
     if user_id not in user_sessions:
         user_sessions[user_id] = []
 
-    # Добавляем сообщение пользователя в историю
     user_sessions[user_id].append({"role": "user", "content": user_text})
 
     try:
-        # Читаем актуальный каталог из файла на лету
         catalog_text = load_catalog()
 
-        # Системный промпт с жестким требованием адреса и телефона
         system_prompt = {
             "role": "system", 
             "content": (
@@ -75,49 +71,41 @@ async def handle_message(message: aiogram_types.Message):
             )
         }
 
-        # ЕКОНОМІЯ ТОКЕНОВ: берем последние 4 сообщения, чтобы не превышать суточные лимиты
         recent_history = user_sessions[user_id][-4:]
 
-        # Отправляем запрос к мощной модели Groq API
+        # Запрос к экономной модели llama-3.1-8b-instant
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             messages=[system_prompt] + recent_history,
             temperature=0.7,
             max_tokens=500
         )
 
         bot_response = completion.choices[0].message.content
-
-        # Добавляем ответ бота в историю
         user_sessions[user_id].append({"role": "assistant", "content": bot_response})
-
-        # Отправляем ответ пользователю в Telegram
         await message.answer(bot_response)
 
-        # УВЕДОМЛЕНИЕ АДМИНУ С РАЗЛИЧЕНИЕМ ТИПОВ СОБЫТИЙ
         if any(marker in bot_response for marker in ["ЗАМОВЛЕННЯ ПРИЙНЯТО", "ЗАМОВЛЕННЯ ОНОВЛЕНО!", "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО"]):
             if ADMIN_ID and ADMIN_ID != 0:
                 
-                # Определяем заголовок в зависимости от того, что ответил бот
                 if "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО" in bot_response:
                     alert_title = "🚨 **КЛІЄНТ ПРОСИТЬ МЕНЕДЖЕРА!**"
-                    task_instruction = "Виділи з діалогу останній номер телефону та ім'я клієнта (або контекст питання). Коротко."
+                    task_instruction = "Виділи з діалогу останній номер телефону та ім'я клієнта. Коротко."
                 elif "ЗАМОВЛЕННЯ ОНОВЛЕНО!" in bot_response:
                     alert_title = "🔄 **ЗАМОВЛЕННЯ ОНОВЛЕНО!**"
-                    task_instruction = "Виділи з діалогу оновлені дані замовлення (товар, розмір, телефон, адреса). Коротко."
+                    task_instruction = "Виділи з діалогу оновлені дані замовлення. Коротко."
                 else:
                     alert_title = "📦 **НОВЕ ЗАМОВЛЕННЯ ПРИЙНЯТО!**"
-                    task_instruction = "Виділи з діалогу деталі замовлення (товар, розмір, телефон, адреса). Коротко."
+                    task_instruction = "Виділи з діалогу деталі замовлення. Коротко."
 
-                # Делаем короткий запрос для выжимки данных
                 summary_prompt = [
-                    {"role": "system", "content": f"{task_instruction} Виведи інформацію чітко і лаконічно, без зайвих слів."},
+                    {"role": "system", "content": f"{task_instruction} Виведи інформацію чітко і лаконічно."},
                     {"role": "user", "content": "\n".join([f"{m['role']}: {m['content']}" for m in user_sessions[user_id]])}
                 ]
                 
                 try:
                     summary_resp = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
+                        model="llama-3.1-8b-instant",
                         messages=summary_prompt,
                         temperature=0.3,
                         max_tokens=150
@@ -126,11 +114,7 @@ async def handle_message(message: aiogram_types.Message):
                 except:
                     order_details = "Не вдалося автоматично згорнути деталі."
 
-                admin_text = (
-                    f"{alert_title}\n\n"
-                    f"👤 **Клієнт:** {message.from_user.full_name} (@{message.from_user.username}, ID: `{user_id}`)\n\n"
-                    f"📋 **Інформація:**\n{order_details}"
-                )
+                admin_text = f"{alert_title}\n\n👤 **Клієнт:** {message.from_user.full_name} (@{message.from_user.username}, ID: `{user_id}`)\n\n📋 **Інформація:**\n{order_details}"
                 try:
                     await bot.send_message(chat_id=ADMIN_ID, text=admin_text, parse_mode="Markdown")
                 except Exception as admin_err:
@@ -139,9 +123,8 @@ async def handle_message(message: aiogram_types.Message):
     except Exception as e:
         logging.error(f"Ошибка API или сети: {e}")
         user_sessions[user_id] = []
-        await message.answer("Ой, здається, сталася невеличка технічна помилка або я втомився. Давайте почнемо з чистого аркуша! Що вас цікавить?")
+        await message.answer("Ой, сталася технічна помилка. Давайте почнемо з чистого аркуша!")
 
-# Запуск бота
 async def main():
     await dp.start_polling(bot)
 
