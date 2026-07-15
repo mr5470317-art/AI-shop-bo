@@ -90,12 +90,14 @@ async def handle_message(message: aiogram_types.Message):
                     text=f"🔔 ЗМІНИ В ЗАМОВЛЕННІ / НОВИЙ ЗАПИТ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nЛог:\n{history_text}"
                 )
             
-    except Exception as e:
+        except Exception as e:
         logging.error(f"Ошибка: {e}")
-        # Очищаем память пользователя при ошибке, чтобы убрать "битый" контекст
-        user_sessions[user_id] = [] 
-        await message.answer("Ой, здається, я заплутався. Давайте почнемо з чистого аркуша! Що вас цікавить з нашого асортименту?")
-
+        # Сбрасываем сессию и сразу закладываем туда чистый старт
+        user_sessions[user_id] = [
+            {"role": "assistant", "content": "Вітаю! Давайте почнемо нашу розмову спочатку. Що вас цікавить з нашого асортименту одягу чи взуття?"}
+        ]
+        await message.answer("Ой, здається, ми заїхали кудись не туди! Давайте почнемо з чистого аркуша. Що вас цікавить з нашого асортименту?")
+    
 async def main():
     await dp.start_polling(bot)
 
