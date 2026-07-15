@@ -20,8 +20,11 @@ dp = Dispatcher()
 # Инициализация Groq
 client = AsyncGroq(api_key=GROQ_API_KEY.strip())
 
+# Словарь для хранения истории сообщений каждого пользователя (память бота)
+user_sessions = {}
+
 def get_products_data():
-    files = ["products.txt", "catalog.txt"]  # Читаем сразу оба файла, если они есть
+    files = ["products.txt", "catalog.txt"]  # Читаем оба файла
     all_data = ""
     for file in files:
         try:
@@ -33,10 +36,15 @@ def get_products_data():
 
 @dp.message(Command("start"))
 async def cmd_start(message: aiogram_types.Message):
-    if MY_TELEGRAM_ID and message.from_user.id == MY_TELEGRAM_ID:
+    user_id = message.from_user.id
+    # Очищаем историю при новом старте
+    if user_id in user_sessions:
+        user_sessions[user_id] = []
+
+    if MY_TELEGRAM_ID and user_id == MY_TELEGRAM_ID:
         await message.answer("Привіт, адміне! Це службовий чат.")
     else:
-        await message.answer("Привіт! Я твій інтелектуальний помічник-консультант StyleHub.")
+        await message.answer("Привіт! Я твій інтелектуальний помічник-консультант StyleHub. Чим можу допомогти?")
 
 @dp.message(F.text)
 async def handle_message(message: aiogram_types.Message):
@@ -46,34 +54,49 @@ async def handle_message(message: aiogram_types.Message):
         await message.answer("Це службовий чат адміністратора. Клієнтів тут немає.")
         return
 
+    # Инициализируем историю для пользователя, если её нет
+    if user_id not in user_sessions:
+        user_sessions[user_id] = []
+
+    # Добавляем свежее сообщение пользователя в историю
+    user_sessions[user_id].append({"role": "user", "content": message.text})
+
+    # Ограничиваем историю последними 10 сообщениями, чтобы бот не «перегружался»
+    if len(user_sessions[user_id]) > 10:
+        user_sessions[user_id] = user_sessions[user_id][-10:]
+
     # Собираем данные из файлов
     catalog = get_products_data()
     
     system_instruction = (
         f"Ти — професійний консультант магазину одягу StyleHub. "
         f"Твій асортимент та дані про товари з файлів: {catalog}. "
-        "Твоя задача — допомагати клієнтам обирати одяг та відповідати на питання за цим списком. "
+        "Твоя задача — допомагати клієнтам обирати одяг, пам'ятати контекст розмови (обраний товар, розмір тощо) та відповідати за цим списком. "
         "ВАЖЛИВО: Якщо питання не стосується одягу, стилю чи нашого магазину — ввічливо відмовляйся: "
         "'Вибачте, я можу допомогти лише з питаннями щодо одягу та стилю StyleHub.' "
-        "ОФОРМЛЕННЯ ЗАМОВЛЕННЯ: Якщо клієнт погоджується купувати, попроси номер телефону та адресу доставки. "
-        "Як тільки він надасть дані, обов'язково відповідай покупцю фразою 'ЗАМОВЛЕННЯ ПРИЙНЯТО' і додай: "
-        "'Дякуємо за покупку, нам було приємно з вами працювати!' "
-        "Відповідай виключно грамотною українською мовою."
+        "ОФОРМЛЕННЯ ЗАМОВЛЕННЯ: Якщо клієнт погоджується купувати та надав контактні дані (номер телефону, адресу), обов'язково відповідай покупцю фразою "
+        "'ЗАМОВЛЕННЯ ПРИЙНЯТО' і додай: 'Дякуємо за покупку, нам було приємно з вами працювати!' "
+        "Відповідай виключно лаконічно та грамотною українською мовою, не перепитуй те, що клієнт уже назвав."
     )
 
     try:
+        # Отправляем системный промпт + всю историю диалога
+        messages_payload = [{"role": "system", "content": system_instruction}] + user_sessions[user_id]
+
         chat_completion = await client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": message.text}
-            ],
-            model="llama-3.3-70b-versatile",  # Топовая бесплатная модель с отличным знанием украинского
-            temperature=0.4
+            messages=messages_payload,
+            model="llama-3.3-70b-versatile",
+            temperature=0.3
         )
         
         reply_text = chat_completion.choices[0].message.content
+        
+        # Сохраняем ответ бота в историю
+        user_sessions[user_id].append({"role": "assistant", "content": reply_text})
+        
         await message.answer(reply_text)
 
+        # Проверка на успешное оформление заказа
         if "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
             if MY_TELEGRAM_ID != 0:
                 await bot.send_message(
