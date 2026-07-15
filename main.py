@@ -94,14 +94,30 @@ async def handle_message(message: aiogram_types.Message):
         # Отправляем ответ пользователю в Telegram
         await message.answer(bot_response)
 
-        # ТОЧЕЧНОЕ ДОБАВЛЕНИЕ: Отправка уведомления админу при оформлении/обновлении заказа
+        # ОТПРАВКА КОМПАКТНОГО УВЕДОМЛЕНИЯ АДМИНУ
         if any(marker in bot_response for marker in ["ЗАМОВЛЕННЯ ПРИЙНЯТО", "ЗАМОВЛЕННЯ ОНОВЛЕНО!", "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО"]):
             if ADMIN_ID and ADMIN_ID != 0:
-                history_summary = "\n".join([f"{m['role']}: {m['content']}" for m in user_sessions[user_id]])
+                # Делаем отдельный быстрый и дешевый запрос к ИИ, чтобы он вытащил чистые данные для админа
+                summary_prompt = [
+                    {"role": "system", "content": "Виділи з діалогу клієнта тільки головне для замовлення і виведи у форматі: Товар/Розмір/Колір, Номер телефону, Адреса доставки. Без зайвих слів."},
+                    {"role": "user", "content": "\n".join([f"{m['role']}: {m['content']}" for m in user_sessions[user_id]])}
+                ]
+                
+                try:
+                    summary_resp = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=summary_prompt,
+                        temperature=0.3,
+                        max_tokens=150
+                    )
+                    order_details = summary_resp.choices[0].message.content
+                except:
+                    order_details = "Не вдалося автоматично згорнути деталі."
+
                 admin_text = (
-                    f"🚨 **НОВИЙ ЗАПИТ/ЗАМОВЛЕННЯ!**\n\n"
-                    f"👤 Клієнт: {message.from_user.full_name} (@{message.from_user.username}, ID: `{user_id}`)\n\n"
-                    f"📜 **Історія:**\n{history_summary}"
+                    f"🚨 **НОВЕ ЗАМОВЛЕННЯ / ЗАПИТ!**\n\n"
+                    f"👤 **Клієнт:** {message.from_user.full_name} (@{message.from_user.username}, ID: `{user_id}`)\n\n"
+                    f"📦 **Деталі:**\n{order_details}"
                 )
                 try:
                     await bot.send_message(chat_id=ADMIN_ID, text=admin_text, parse_mode="Markdown")
@@ -110,7 +126,6 @@ async def handle_message(message: aiogram_types.Message):
 
     except Exception as e:
         logging.error(f"Ошибка API или сети: {e}")
-        # При любой ошибке сбрасываем историю конкретного юзера
         user_sessions[user_id] = []
         await message.answer("Ой, здається, сталася невеличка технічна помилка або я втомився. Давайте почнемо з чистого аркуша! Що вас цікавить?")
 
