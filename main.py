@@ -7,9 +7,10 @@ from groq import Groq
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Получаем ключи
+# Получаем ключи и ID администратора
 BOT_TOKEN = os.getenv("BOT_TOKEN", "ТВОЙ_ТОКЕН_ТЕЛЕГРАМ_БОТА")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "ТВОЙ_КЛЮЧ_GROQ")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # Твой Telegram ID из переменных Railway
 
 # Инициализация бота и клиента Groq
 bot = Bot(token=BOT_TOKEN)
@@ -24,7 +25,6 @@ def load_catalog():
     try:
         if os.path.exists("products.txt"):
             with open("products.txt", "r", encoding="utf-8") as f:
-                # Читаем строки, убираем лишние пробелы и пустые строки
                 lines = [line.strip() for line in f if line.strip()]
                 return ", ".join(lines)
         return "Асортимент тимчасово відсутній."
@@ -57,10 +57,10 @@ async def handle_message(message: aiogram_types.Message):
     user_sessions[user_id].append({"role": "user", "content": user_text})
 
     try:
-        # ЧИТАЕМ КАТАЛОГ ИЗ ФАЙЛА НА ЛЕТУ
+        # Читаем актуальный каталог из файла на лету
         catalog_text = load_catalog()
 
-        # ФОРМИРУЕМ СИСТЕМНЫЙ ПРОМПТ С ДАННЫМИ ИЗ ФАЙЛА
+        # Твой системный промпт
         system_prompt = {
             "role": "system", 
             "content": (
@@ -94,8 +94,23 @@ async def handle_message(message: aiogram_types.Message):
         # Отправляем ответ пользователю в Telegram
         await message.answer(bot_response)
 
+        # ТОЧЕЧНОЕ ДОБАВЛЕНИЕ: Отправка уведомления админу при оформлении/обновлении заказа
+        if any(marker in bot_response for marker in ["ЗАМОВЛЕННЯ ПРИЙНЯТО", "ЗАМОВЛЕННЯ ОНОВЛЕНО!", "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО"]):
+            if ADMIN_ID and ADMIN_ID != 0:
+                history_summary = "\n".join([f"{m['role']}: {m['content']}" for m in user_sessions[user_id]])
+                admin_text = (
+                    f"🚨 **НОВИЙ ЗАПИТ/ЗАМОВЛЕННЯ!**\n\n"
+                    f"👤 Клієнт: {message.from_user.full_name} (@{message.from_user.username}, ID: `{user_id}`)\n\n"
+                    f"📜 **Історія:**\n{history_summary}"
+                )
+                try:
+                    await bot.send_message(chat_id=ADMIN_ID, text=admin_text, parse_mode="Markdown")
+                except Exception as admin_err:
+                    logging.error(f"Помилка відправки адміну: {admin_err}")
+
     except Exception as e:
         logging.error(f"Ошибка API или сети: {e}")
+        # При любой ошибке сбрасываем историю конкретного юзера
         user_sessions[user_id] = []
         await message.answer("Ой, здається, сталася невеличка технічна помилка або я втомився. Давайте почнемо з чистого аркуша! Що вас цікавить?")
 
@@ -106,4 +121,3 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
-
