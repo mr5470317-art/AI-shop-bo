@@ -94,12 +94,24 @@ async def handle_message(message: aiogram_types.Message):
         # Отправляем ответ пользователю в Telegram
         await message.answer(bot_response)
 
-        # ОТПРАВКА КОМПАКТНОГО УВЕДОМЛЕНИЯ АДМИНУ
+        # УВЕДОМЛЕНИЕ АДМИНУ С РАЗЛИЧЕНИЕМ ТИПОВ СОБЫТИЙ
         if any(marker in bot_response for marker in ["ЗАМОВЛЕННЯ ПРИЙНЯТО", "ЗАМОВЛЕННЯ ОНОВЛЕНО!", "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО"]):
             if ADMIN_ID and ADMIN_ID != 0:
-                # Делаем отдельный быстрый и дешевый запрос к ИИ, чтобы он вытащил чистые данные для админа
+                
+                # Определяем заголовок в зависимости от того, что ответил бот
+                if "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО" in bot_response:
+                    alert_title = "🚨 **КЛІЄНТ ПРОСИТЬ МЕНЕДЖЕРА!**"
+                    task_instruction = "Виділи з діалогу останній номер телефону та ім'я клієнта (або контекст питання). Коротко."
+                elif "ЗАМОВЛЕННЯ ОНОВЛЕНО!" in bot_response:
+                    alert_title = "🔄 **ЗАМОВЛЕННЯ ОНОВЛЕНО!**"
+                    task_instruction = "Виділи з діалогу оновлені дані замовлення (товар, розмір, телефон, адреса). Коротко."
+                else:
+                    alert_title = "📦 **НОВЕ ЗАМОВЛЕННЯ ПРИЙНЯТО!**"
+                    task_instruction = "Виділи з діалогу деталі замовлення (товар, розмір, телефон, адреса). Коротко."
+
+                # Делаем короткий запрос для выжимки данных
                 summary_prompt = [
-                    {"role": "system", "content": "Виділи з діалогу клієнта тільки головне для замовлення і виведи у форматі: Товар/Розмір/Колір, Номер телефону, Адреса доставки. Без зайвих слів."},
+                    {"role": "system", "content": f"{task_instruction} Виведи інформацію чітко і лаконічно, без зайвих слів."},
                     {"role": "user", "content": "\n".join([f"{m['role']}: {m['content']}" for m in user_sessions[user_id]])}
                 ]
                 
@@ -115,9 +127,9 @@ async def handle_message(message: aiogram_types.Message):
                     order_details = "Не вдалося автоматично згорнути деталі."
 
                 admin_text = (
-                    f"🚨 **НОВЕ ЗАМОВЛЕННЯ / ЗАПИТ!**\n\n"
+                    f"{alert_title}\n\n"
                     f"👤 **Клієнт:** {message.from_user.full_name} (@{message.from_user.username}, ID: `{user_id}`)\n\n"
-                    f"📦 **Деталі:**\n{order_details}"
+                    f"📋 **Інформація:**\n{order_details}"
                 )
                 try:
                     await bot.send_message(chat_id=ADMIN_ID, text=admin_text, parse_mode="Markdown")
