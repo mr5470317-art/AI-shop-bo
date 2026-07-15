@@ -5,10 +5,8 @@ from groq import AsyncGroq
 from aiogram import Bot, Dispatcher, types as aiogram_types, F
 from aiogram.filters import Command
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Получение переменных окружения
 GROQ_API_KEY = os.getenv("GROQ_API_KEY") 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 MY_TELEGRAM_ID = int(os.getenv("MY_TELEGRAM_ID", 0))
@@ -19,14 +17,11 @@ if not TELEGRAM_TOKEN or not GROQ_API_KEY:
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# Инициализация клиента Groq
 client = AsyncGroq(api_key=GROQ_API_KEY.strip())
 
-# Словарь для хранения памяти диалогов (user_id: [history])
 user_sessions = {}
 
 def get_products_data():
-    """Читает данные из файлов ассортимента и каталога."""
     files = ["products.txt", "catalog.txt"]
     all_data = ""
     for file in files:
@@ -40,7 +35,7 @@ def get_products_data():
 @dp.message(Command("start"))
 async def cmd_start(message: aiogram_types.Message):
     user_id = message.from_user.id
-    user_sessions[user_id] = [] # Сброс памяти при старте
+    user_sessions[user_id] = []
     
     if MY_TELEGRAM_ID and user_id == MY_TELEGRAM_ID:
         await message.answer("Привіт, адміне! Бот готовий до роботи.")
@@ -52,30 +47,29 @@ async def handle_message(message: aiogram_types.Message):
     user_id = message.from_user.id
     
     if MY_TELEGRAM_ID and user_id == MY_TELEGRAM_ID:
-        return # Игнорируем админа в рабочем чате
+        return
 
-    # Инициализация памяти для пользователя
     if user_id not in user_sessions:
         user_sessions[user_id] = []
 
-    # Добавляем сообщение пользователя в память
     user_sessions[user_id].append({"role": "user", "content": message.text})
     
-    # Ограничение памяти (последние 10 сообщений)
     if len(user_sessions[user_id]) > 10:
         user_sessions[user_id] = user_sessions[user_id][-10:]
 
     catalog = get_products_data()
     
     system_instruction = (
-         f"Ти - професійний консультант магазину одягу StyleHub. Твій асортимент: {catalog}. "
-        "Твоя задача - чітко відповідати на питання, допомагати з вибором та оформлювати замовлення. "
-        "ПРАВИЛА ВІДПОВІДЕЙ:\n"
-        "1. Пиши лише українською мовою. Будь лаконічним, без зайвої 'води' та довгих вступів.\n"
-        "2. Якщо клієнт має складні питання, просить покликати людину або хоче поспілкуватися з менеджером - "
-        "пиши: 'Зачекайте, будь ласка, я передаю ваш запит адміністратору, він скоро зв'яжеться з вами'.\n"
-        "3. Якщо питання не стосується асортименту - коротко відмовляй: 'Я допомагаю лише з асортиментом StyleHub'.\n"
-        "4. ОФОРМЛЕННЯ ЗАМОВЛЕННЯ: При отриманні телефону та адреси — пиши 'ЗАМОВЛЕННЯ ПРИЙНЯТО' та подякуй."
+        f"Ти — професійний консультант магазину StyleHub. Твій асортимент: {catalog}. "
+        "Твоя задача — допомагати з вибором одягу, оформлювати замовлення або з'єднувати з менеджером.\n"
+        "ПРАВИЛА ДЛЯ МЕНЕДЖЕРА:\n"
+        "1. Якщо клієнт просить живу людину або менеджера, ти ПОВИНЕН спочатку запитати: "
+        "'Ви хочете зв'язатися з менеджером?' і чекати його відповіді.\n"
+        "2. Якщо клієнт відповідає 'Так' на це питання, ти зобов'язаний написати фразу: "
+        "'ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО' та додати: 'З вами скоро зв'яжуться'.\n"
+        "3. Якщо клієнт відповідає 'Ні', повертайся до консультації по товарах.\n"
+        "ОФОРМЛЕННЯ ЗАМОВЛЕННЯ: Коли клієнт надає телефон і адресу, напиши 'ЗАМОВЛЕННЯ ПРИЙНЯТО' та подякуй.\n"
+        "Пиши виключно українською мовою, лаконічно."
     )
 
     try:
@@ -92,15 +86,25 @@ async def handle_message(message: aiogram_types.Message):
         
         await message.answer(reply_text)
 
-        # Отправка заказа админу
-        if "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
+        # 1. Обработка подтвержденного запроса на менеджера
+        if "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО" in reply_text.upper():
             if MY_TELEGRAM_ID != 0:
                 history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in user_sessions[user_id]])
                 await bot.send_message(
                     chat_id=MY_TELEGRAM_ID, 
-                    text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\n\nЛог:\n{history_text}"
+                    text=f"🆘 КЛІЄНТ ПРОСИТЬ МЕНЕДЖЕРА!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nЛог:\n{history_text}"
                 )
-            user_sessions[user_id] = [] # Очистка после заказа
+            user_sessions[user_id] = [] # Очищаем сессию
+
+        # 2. Обработка заказа
+        elif "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
+            if MY_TELEGRAM_ID != 0:
+                history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in user_sessions[user_id]])
+                await bot.send_message(
+                    chat_id=MY_TELEGRAM_ID, 
+                    text=f"🔥 НОВЕ ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nЛог:\n{history_text}"
+                )
+            user_sessions[user_id] = []
             
     except Exception as e:
         logging.error(f"Ошибка: {e}")
