@@ -1,4 +1,4 @@
-import os
+     import os
 import logging
 from aiogram import Bot, Dispatcher, F, types as aiogram_types
 from aiogram.filters import Command
@@ -78,9 +78,9 @@ async def handle_message(message: aiogram_types.Message):
         # ЭКОНОМИЯ ТОКЕНОВ: берем только последние 6 сообщений из истории
         recent_history = user_sessions[user_id][-6:]
 
-        # Отправляем запрос к Groq API
+        # Отправляем запрос к Groq API (модель изменена на 8b)
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             messages=[system_prompt] + recent_history,
             temperature=0.7,
             max_tokens=500
@@ -117,7 +117,7 @@ async def handle_message(message: aiogram_types.Message):
                 
                 try:
                     summary_resp = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
+                        model="llama-3.1-8b-instant",  # Модель выжимки также изменена на 8b
                         messages=summary_prompt,
                         temperature=0.3,
                         max_tokens=150
@@ -148,3 +148,4 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+               
