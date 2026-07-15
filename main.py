@@ -1,3 +1,4 @@
+import os
 import logging
 from aiogram import Bot, Dispatcher, F, types as aiogram_types
 from aiogram.filters import Command
@@ -6,10 +7,12 @@ from groq import Groq
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Инициализация бота и клиента Groq
-BOT_TOKEN = "ТВОЙ_ТОКЕН_ТЕЛЕГРАМ_БОТА"
-GROQ_API_KEY = "ТВОЙ_КЛЮЧ_GROQ"
+# Получаем ключи (убедись, что они прописаны в переменных окружения Railway 
+# или вставь их сюда прямо в кавычки для теста)
+BOT_TOKEN = os.getenv("BOT_TOKEN", "ТВОЙ_ТОКЕН_ТЕЛЕГРАМ_БОТА")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "ТВОЙ_КЛЮЧ_GROQ")
 
+# Инициализация бота и клиента Groq
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 client = Groq(api_key=GROQ_API_KEY)
@@ -26,20 +29,19 @@ SYSTEM_PROMPT = {
 @dp.message(Command("start"))
 async def cmd_start(message: aiogram_types.Message):
     user_id = message.from_user.id
-    # Сбрасываем историю при команде /start
     user_sessions[user_id] = []
     await message.answer("Привіт! Я твій консультант у StyleHub. Як я можу тобі допомогти сьогодні?")
+
+@dp.message(Command("reset"))
+async def cmd_reset(message: aiogram_types.Message):
+    user_id = message.from_user.id
+    user_sessions[user_id] = []
+    await message.answer("Історію очищено! Давайте почнемо спочатку.")
 
 @dp.message(F.text)
 async def handle_message(message: aiogram_types.Message):
     user_id = message.from_user.id
     user_text = message.text
-
-    # Если пользователь написал команду сброса
-    if user_text.lower() == "/reset":
-        user_sessions[user_id] = []
-        await message.answer("Історію очищено! Давайте почнемо спочатку.")
-        return
 
     # Инициализируем историю для нового пользователя, если её нет
     if user_id not in user_sessions:
@@ -54,7 +56,7 @@ async def handle_message(message: aiogram_types.Message):
 
         # Отправляем запрос к Groq API
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",  # Можешь поменять на "llama-3.1-8b-instant" для еще большей экономии
+            model="llama-3.3-70b-versatile",
             messages=[SYSTEM_PROMPT] + recent_history,
             temperature=0.7,
             max_tokens=500
@@ -70,9 +72,9 @@ async def handle_message(message: aiogram_types.Message):
 
     except Exception as e:
         logging.error(f"Ошибка API или сети: {e}")
-        # Если словили лимит токенов (429) или другую ошибку — сбрасываем битый хвост
+        # При любой ошибке (включая лимит токенов 429) сбрасываем историю конкретного юзера
         user_sessions[user_id] = []
-        await message.answer("Ой, здається, я занадто багато думав і втомився. Давайте почнемо з чистого аркуша! Що вас цікавить з нашого асортименту?")
+        await message.answer("Ой, здається, сталася невеличка технічна помилка або я втомився. Давайте почнемо з чистого аркуша! Що вас цікавить?")
 
 # Запуск бота
 async def main():
