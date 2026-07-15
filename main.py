@@ -67,4 +67,66 @@ async def handle_message(message: aiogram_types.Message):
         system_instruction = (
             f"Ти — професійний консультант StyleHub. ТЕКУЧИЙ АСОРИМЕНТ МАГАЗИНУ: [{catalog_text}].\n"
             "ПРАВИЛА:\n"
-            "
+            "1. Продавай та пропонуй покупцям ВИКЛЮЧНО товари з поточного асортименту вище. Категорично заборонено вигадувати інші моделі, бренди чи товари, яких немає в цьому списку.\n"
+            "2. Якщо клієнт просить змінити деталі (адресу, розмір) у вже оформленому замовленні — внеси зміну, обов'язково напиши фразу 'ЗАМОВЛЕННЯ ОНОВЛЕНО!' та підсумуй оновлені дані.\n"
+            "3. Якщо клієнт хоче менеджера: запитай номер, перепитай підтвердження, після відповіді 'Так' напиши 'ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО'.\n"
+            "4. Якщо клієнт кидає номер телефону без контексту — запитай, для чого він (замовлення чи менеджер).\n"
+            "5. ОФОРМЛЕННЯ (СУВОРО): Коли є всі дані — товар, колір, розмір, телефон ТА адреса доставки — тоді напиши 'ЗАМОВЛЕННЯ ПРИЙНЯТО' та подякуй. ЗАБОРОНЕНО писати 'ЗАМОВЛЕННЯ ПРИЙНЯТО', якщо клієнт ще не назвав адресу або телефон!\n"
+            "Пиши виключно українською мовою, лаконічно."
+        )
+
+        # Создаем модель с системной инструкцией
+        model = genai.GenerativeModel(
+            model_name='gemini-1.5-flash',
+            system_instruction=system_instruction,
+            generation_config=generation_config
+        )
+
+        # Форматируем историю для Gemini (все сообщения кроме последнего)
+        gemini_history = []
+        for msg in user_sessions[user_id][:-1]:
+            role = "user" if msg["role"] == "user" else "model"
+            gemini_history.append({"role": role, "parts": [msg["content"]]})
+
+        # Запускаем чат с историей и отправляем последнее сообщение
+        chat = model.start_chat(history=gemini_history)
+        response = chat.send_message(user_text)
+
+        bot_response = response.text
+
+        # Добавляем ответ бота в локальную историю
+        user_sessions[user_id].append({"role": "model", "content": bot_response})
+        await message.answer(bot_response)
+
+        # Уведомление админу без лишних запросов к ИИ
+        if any(marker in bot_response for marker in ["ЗАМОВЛЕННЯ ПРИЙНЯТО", "ЗАМОВЛЕННЯ ОНОВЛЕНО!", "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО"]):
+            if ADMIN_ID and ADMIN_ID != 0:
+                
+                if "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО" in bot_response:
+                    alert_title = "🚨 **КЛІЄНТ ПРОСИТЬ МЕНЕДЖЕРА!**"
+                elif "ЗАМОВЛЕННЯ ОНОВЛЕНО!" in bot_response:
+                    alert_title = "🔄 **ЗАМОВЛЕННЯ ОНОВЛЕНО!**"
+                else:
+                    alert_title = "📦 **НОВЕ ЗАМОВЛЕННЯ ПРИЙНЯТО!**"
+
+                admin_text = (
+                    f"{alert_title}\n\n"
+                    f"👤 **Клієнт:** {message.from_user.full_name} (@{message.from_user.username}, ID: `{user_id}`)\n\n"
+                    f"📋 **Деталі:**\n{bot_response}"
+                )
+                try:
+                    await bot.send_message(chat_id=ADMIN_ID, text=admin_text, parse_mode="Markdown")
+                except Exception as admin_err:
+                    logging.error(f"Помилка відправки адміну: {admin_err}")
+
+    except Exception as e:
+        logging.error(f"Ошибка API или сети: {e}")
+        user_sessions[user_id] = []
+        await message.answer("Ой, здається, сталася невеличка технічна помилка або я втомився. Давайте почнемо з чистого аркуша! Що вас цікавить?")
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
