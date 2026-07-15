@@ -19,12 +19,18 @@ client = Groq(api_key=GROQ_API_KEY)
 # Словарь для хранения истории диалогов пользователей
 user_sessions = {}
 
-# ТВОЙ КАТАЛОГ ТОВАРОВ (добавляй сюда реальные товары)
-products = [
-    {"name": "Кросівки Nike Air Max", "price": "3500 грн"},
-    {"name": "Худі чорне StyleHub", "price": "1500 грн"},
-    {"name": "Футболка біла базова", "price": "600 грн"}
-]
+# Функция для чтения каталога из файла
+def load_catalog():
+    try:
+        if os.path.exists("products.txt"):
+            with open("products.txt", "r", encoding="utf-8") as f:
+                # Читаем строки, убираем лишние пробелы и пустые строки
+                lines = [line.strip() for line in f if line.strip()]
+                return ", ".join(lines)
+        return "Асортимент тимчасово відсутній."
+    except Exception as e:
+        logging.error(f"Ошибка чтения файла каталога: {e}")
+        return "Асортимент тимчасово відсутній."
 
 @dp.message(Command("start"))
 async def cmd_start(message: aiogram_types.Message):
@@ -51,10 +57,10 @@ async def handle_message(message: aiogram_types.Message):
     user_sessions[user_id].append({"role": "user", "content": user_text})
 
     try:
-        # ДИНАМИЧЕСКИ СОЗДАЕМ КАТАЛОГ ПЕРЕД ОТПРАВКОЙ ЗАПРОСА
-        catalog_text = ", ".join([f"{item['name']} ({item['price']})" for item in products])
+        # ЧИТАЕМ КАТАЛОГ ИЗ ФАЙЛА НА ЛЕТУ
+        catalog_text = load_catalog()
 
-        # ФОРМИРУЕМ СИСТЕМНЫЙ ПРОМПТ С РЕАЛЬНЫМИ ДАННЫМИ
+        # ФОРМИРУЕМ СИСТЕМНЫЙ ПРОМПТ С ДАННЫМИ ИЗ ФАЙЛА
         system_prompt = {
             "role": "system", 
             "content": (
@@ -100,3 +106,4 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+
