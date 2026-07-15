@@ -19,7 +19,6 @@ dp = Dispatcher()
 
 client = AsyncGroq(api_key=GROQ_API_KEY.strip())
 
-# Хранилище сессий
 user_sessions = {}
 
 def get_products_data():
@@ -36,7 +35,6 @@ def get_products_data():
 @dp.message(Command("start"))
 async def cmd_start(message: aiogram_types.Message):
     user_id = message.from_user.id
-    # Очищаем историю только при явной команде старт, если нужно начать с нуля
     user_sessions[user_id] = []
     await message.answer("Привіт! Я твій консультант StyleHub. Чим можу допомогти?")
 
@@ -52,7 +50,6 @@ async def handle_message(message: aiogram_types.Message):
 
     user_sessions[user_id].append({"role": "user", "content": message.text})
     
-    # Ограничение памяти, чтобы не переполнять API, но оставляем достаточно для контекста
     if len(user_sessions[user_id]) > 20:
         user_sessions[user_id] = user_sessions[user_id][-20:]
 
@@ -62,7 +59,7 @@ async def handle_message(message: aiogram_types.Message):
         f"Ти — професійний консультант StyleHub. Асортимент: {catalog}. "
         "Твоя задача — допомагати з вибором, оформлювати та РЕДАГУВАТИ замовлення.\n"
         "ПРАВИЛА:\n"
-        "1. Якщо клієнт просить змінити деталі (адресу, розмір) у вже оформленому замовленні — просто підтвердь зміну та уточни, чи все інше вірно.\n"
+        "1. Якщо клієнт просить змінити деталі (адресу, розмір) у вже оформленому замовленні — внеси зміну, обов'язково напиши фразу 'ЗАМОВЛЕННЯ ОНОВЛЕНО!' та підсумуй оновлені дані.\n"
         "2. Якщо клієнт хоче менеджера: запитай номер, перепитай підтвердження, після відповіді 'Так' напиши 'ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО'.\n"
         "3. Якщо клієнт кидає номер телефону без контексту — запитай, для чого він (замовлення чи менеджер).\n"
         "4. ОФОРМЛЕННЯ: Коли є всі дані (товар, розмір, телефон, адреса) — напиши 'ЗАМОВЛЕННЯ ПРИЙНЯТО' та подякуй.\n"
@@ -83,13 +80,14 @@ async def handle_message(message: aiogram_types.Message):
         
         await message.answer(reply_text)
 
-        # Отправка уведомлений админу
-        if "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО" in reply_text.upper() or "ЗАМОВЛЕННЯ ПРИЙНЯТО" in reply_text.upper():
+        # Надежная отправка админу по любому ключевому слову статуса
+        triggers = ["ЗАМОВЛЕННЯ ПРИЙНЯТО", "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО", "ЗАМОВЛЕННЯ ОНОВЛЕНО"]
+        if any(trigger in reply_text.upper() for trigger in triggers):
             if MY_TELEGRAM_ID != 0:
                 history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in user_sessions[user_id]])
                 await bot.send_message(
                     chat_id=MY_TELEGRAM_ID, 
-                    text=f"🔔 ОНОВЛЕННЯ/ЗАМОВЛЕННЯ!\nКлієнт: @{message.from_user.username or 'без ніка'}\n\nЛог:\n{history_text}"
+                    text=f"🔔 ЗМІНИ В ЗАМОВЛЕННІ / НОВИЙ ЗАПИТ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nЛог:\n{history_text}"
                 )
             
     except Exception as e:
