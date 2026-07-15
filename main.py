@@ -63,7 +63,7 @@ async def handle_message(message: aiogram_types.Message):
         )
 
         # Формируем тело запроса для прямого API Gemini
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
         
         payload = {
             "system_instruction": {
