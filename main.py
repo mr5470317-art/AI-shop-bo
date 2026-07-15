@@ -1,101 +1,83 @@
-import os
-import asyncio
 import logging
-from groq import AsyncGroq
-from aiogram import Bot, Dispatcher, types as aiogram_types, F
+from aiogram import Bot, Dispatcher, F, types as aiogram_types
 from aiogram.filters import Command
+from groq import Groq
 
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY") 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-MY_TELEGRAM_ID = int(os.getenv("MY_TELEGRAM_ID", 0))
+# Инициализация бота и клиента Groq
+BOT_TOKEN = "ТВОЙ_ТОКЕН_ТЕЛЕГРАМ_БОТА"
+GROQ_API_KEY = "ТВОЙ_КЛЮЧ_GROQ"
 
-if not TELEGRAM_TOKEN or not GROQ_API_KEY:
-    raise ValueError("Не найдены переменные окружения TELEGRAM_TOKEN или GROQ_API_KEY!")
-
-bot = Bot(token=TELEGRAM_TOKEN)
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+client = Groq(api_key=GROQ_API_KEY)
 
-client = AsyncGroq(api_key=GROQ_API_KEY.strip())
-
+# Словарь для хранения истории диалогов пользователей
 user_sessions = {}
 
-def get_products_data():
-    files = ["products.txt", "catalog.txt"]
-    all_data = ""
-    for file in files:
-        try:
-            with open(file, "r", encoding="utf-8") as f:
-                all_data += f"\n--- {file} ---\n" + f.read()
-        except FileNotFoundError:
-            continue
-    return all_data if all_data else "Асортимент наразі порожній."
+# Системный промпт (роль бота)
+SYSTEM_PROMPT = {
+    "role": "system", 
+    "content": "Ти — ввічливий та корисний консультант інтернет-магазину одягу та взуття StyleHub. Допомагай клієнтам з вибором товарів, відповідай коротко та по суті. Якщо тебе запитують про речі, не пов'язані з магазином (наприклад, автомобілі), ввічливо відмовляй і повертай розмову до асортименту."
+}
 
 @dp.message(Command("start"))
 async def cmd_start(message: aiogram_types.Message):
     user_id = message.from_user.id
+    # Сбрасываем историю при команде /start
     user_sessions[user_id] = []
-    await message.answer("Привіт! Я твій консультант StyleHub. Чим можу допомогти?")
+    await message.answer("Привіт! Я твій консультант у StyleHub. Як я можу тобі допомогти сьогодні?")
 
 @dp.message(F.text)
 async def handle_message(message: aiogram_types.Message):
     user_id = message.from_user.id
-    
-    if MY_TELEGRAM_ID and user_id == MY_TELEGRAM_ID:
+    user_text = message.text
+
+    # Если пользователь написал команду сброса
+    if user_text.lower() == "/reset":
+        user_sessions[user_id] = []
+        await message.answer("Історію очищено! Давайте почнемо спочатку.")
         return
 
+    # Инициализируем историю для нового пользователя, если её нет
     if user_id not in user_sessions:
         user_sessions[user_id] = []
 
-    user_sessions[user_id].append({"role": "user", "content": message.text})
-    
-    if len(user_sessions[user_id]) > 20:
-        user_sessions[user_id] = user_sessions[user_id][-20:]
-
-    catalog = get_products_data()
-    
-    system_instruction = (
-        f"Ти — професійний консультант StyleHub. Асортимент: {catalog}. "
-        "Твоя задача — допомагати з вибором, оформлювати та РЕДАГУВАТИ замовлення.\n"
-        "ПРАВИЛА:\n"
-        "1. Якщо клієнт просить змінити деталі (адресу, розмір) у вже оформленому замовленні — внеси зміну, обов'язково напиши фразу 'ЗАМОВЛЕННЯ ОНОВЛЕНО!' та підсумуй оновлені дані.\n"
-        "2. Якщо клієнт хоче менеджера: запитай номер, перепитай підтвердження, після відповіді 'Так' напиши 'ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО'.\n"
-        "3. Якщо клієнт кидає номер телефону без контексту — запитай, для чого він (замовлення чи менеджер).\n"
-        "4. ОФОРМЛЕННЯ: Коли є всі дані (товар, розмір, телефон, адреса) — напиши 'ЗАМОВЛЕННЯ ПРИЙНЯТО' та подякуй.\n"
-        "Пиши виключно українською мовою, лаконічно."
-    )
+    # Добавляем сообщение пользователя в историю
+    user_sessions[user_id].append({"role": "user", "content": user_text})
 
     try:
-        messages_payload = [{"role": "system", "content": system_instruction}] + user_sessions[user_id]
+        # ЭКОНОМИЯ ТОКЕНОВ: берем только последние 6 сообщений из истории
+        recent_history = user_sessions[user_id][-6:]
 
-        chat_completion = await client.chat.completions.create(
-            messages=messages_payload,
-            model="llama-3.3-70b-versatile",
-            temperature=0.2
+        # Отправляем запрос к Groq API
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",  # Можешь поменять на "llama-3.1-8b-instant" для еще большей экономии
+            messages=[SYSTEM_PROMPT] + recent_history,
+            temperature=0.7,
+            max_tokens=500
         )
-        
-        reply_text = chat_completion.choices[0].message.content
-        user_sessions[user_id].append({"role": "assistant", "content": reply_text})
-        
-        await message.answer(reply_text)
 
-        # Надежная отправка админу по любому ключевому слову статуса
-        triggers = ["ЗАМОВЛЕННЯ ПРИЙНЯТО", "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО", "ЗАМОВЛЕННЯ ОНОВЛЕНО"]
-        if any(trigger in reply_text.upper() for trigger in triggers):
-            if MY_TELEGRAM_ID != 0:
-                history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in user_sessions[user_id]])
-                await bot.send_message(
-                    chat_id=MY_TELEGRAM_ID, 
-                    text=f"🔔 ЗМІНИ В ЗАМОВЛЕННІ / НОВИЙ ЗАПИТ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nЛог:\n{history_text}"
-                )
+        bot_response = completion.choices[0].message.content
+
+        # Добавляем ответ бота в историю
+        user_sessions[user_id].append({"role": "assistant", "content": bot_response})
+
+        # Отправляем ответ пользователю в Telegram
+        await message.answer(bot_response)
 
     except Exception as e:
-        logging.error(f"Ошибка: {e}")
-        await message.answer("Вибачте, виникла технічна помилка.")
+        logging.error(f"Ошибка API или сети: {e}")
+        # Если словили лимит токенов (429) или другую ошибку — сбрасываем битый хвост
+        user_sessions[user_id] = []
+        await message.answer("Ой, здається, я занадто багато думав і втомився. Давайте почнемо з чистого аркуша! Що вас цікавить з нашого асортименту?")
 
+# Запуск бота
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
