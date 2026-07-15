@@ -8,22 +8,24 @@ import google.generativeai as genai
 logging.basicConfig(level=logging.INFO)
 
 # Получаем ключи и ID администратора
-BOT_TOKEN = os.getenv("BOT_TOKEN", "ТВОЙ_ТОКЕН_ТЕЛЕГРАМ_БОТА")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "ТВОЙ_КЛЮЧ_GEMINI")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
-# Инициализация бота и клиента Gemini (классический стабильный SDK)
+# Инициализация бота и клиента Gemini
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# Настраиваем API ключ
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Используем модель gemini-1.5-flash (быстрая, бесплатная и понимает системный промпт)
+# Конфигурация генерации
 generation_config = {
     "temperature": 0.7,
     "max_output_tokens": 500,
 }
 
-# Словарь для хранения истории диалогов пользователей
+# Словарь для хранения истории диалогов
 user_sessions = {}
 
 # Функция для чтения каталога из файла
@@ -63,7 +65,7 @@ async def handle_message(message: aiogram_types.Message):
     try:
         catalog_text = load_catalog()
         
-        # Системный промпт с правилами
+        # Системные инструкции (промпт)
         system_instruction = (
             f"Ти — професійний консультант StyleHub. ТЕКУЧИЙ АСОРИМЕНТ МАГАЗИНУ: [{catalog_text}].\n"
             "ПРАВИЛА:\n"
@@ -75,33 +77,32 @@ async def handle_message(message: aiogram_types.Message):
             "Пиши виключно українською мовою, лаконічно."
         )
 
-        # Создаем модель с системной инструкцией
+        # Создаем модель со встроенной системной инструкцией
         model = genai.GenerativeModel(
             model_name='gemini-1.5-flash',
             system_instruction=system_instruction,
             generation_config=generation_config
         )
 
-        # Форматируем историю для Gemini (все сообщения кроме последнего)
+        # Форматируем историю для Gemini
         gemini_history = []
         for msg in user_sessions[user_id][:-1]:
             role = "user" if msg["role"] == "user" else "model"
             gemini_history.append({"role": role, "parts": [msg["content"]]})
 
-        # Запускаем чат с историей и отправляем последнее сообщение
+        # Запускаем чат и отправляем сообщение
         chat = model.start_chat(history=gemini_history)
         response = chat.send_message(user_text)
 
         bot_response = response.text
 
-        # Добавляем ответ бота в локальную историю
+        # Сохраняем ответ в историю
         user_sessions[user_id].append({"role": "model", "content": bot_response})
         await message.answer(bot_response)
 
-        # Уведомление админу без лишних запросов к ИИ
+        # Уведомление админу
         if any(marker in bot_response for marker in ["ЗАМОВЛЕННЯ ПРИЙНЯТО", "ЗАМОВЛЕННЯ ОНОВЛЕНО!", "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО"]):
             if ADMIN_ID and ADMIN_ID != 0:
-                
                 if "ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО" in bot_response:
                     alert_title = "🚨 **КЛІЄНТ ПРОСИТЬ МЕНЕДЖЕРА!**"
                 elif "ЗАМОВЛЕННЯ ОНОВЛЕНО!" in bot_response:
