@@ -1,12 +1,12 @@
 import os
 import logging
+import asyncio
 import google.generativeai as genai
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 
 logging.basicConfig(level=logging.INFO)
 
-# Получаем ключи
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -14,13 +14,11 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Настраиваем API ключ Google
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Используем надежную актуальную модель gemini-2.0-flash
 model = genai.GenerativeModel(
     model_name='gemini-2.0-flash',
-    generation_config={"temperature": 0.7, "max_output_tokens": 500}
+    generation_config={"temperature": 0.7, "max_output_tokens": 400}
 )
 
 user_sessions = {}
@@ -54,27 +52,27 @@ async def handle_message(message):
     if user_id not in user_sessions:
         user_sessions[user_id] = []
 
+    # Ограничиваем историю последними 6 сообщениями, чтобы экономить бесплатные токены
+    if len(user_sessions[user_id]) > 6:
+        user_sessions[user_id] = user_sessions[user_id][-6:]
+
     user_sessions[user_id].append({"role": "user", "parts": [user_text]})
 
     try:
         catalog_text = load_catalog()
         
         system_instruction = (
-            f"Ти — професійний консультант StyleHub. ТЕКУЧИЙ АСОРИМЕНТ МАГАЗИНУ: [{catalog_text}].\n"
+            f"Ти — професійний консультант StyleHub. АСОРИМЕНТ: [{catalog_text}].\n"
             "ПРАВИЛА:\n"
-            "1. Продавай та пропонуй покупцям ВИКЛЮЧНО товари з поточного асортименту вище. Категорично заборонено вигадувати інші моделі, бренди чи товари, яких немає в цьому списку.\n"
-            "2. Якщо клієнт просить змінити деталі (адресу, розмір) у вже оформленому замовленні — внеси зміну, обов'язково напиши фразу 'ЗАМОВЛЕННЯ ОНОВЛЕНО!' та підсумуй оновлені дані.\n"
-            "3. Якщо клієнт хоче менеджера: запитай номер, перепитай підтвердження, після відповіді 'Так' напиши 'ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО'.\n"
-            "4. Якщо клієнт кидає номер телефону без контексту — запитай, для чого він (замовлення чи менеджер).\n"
-            "5. ОФОРМЛЕННЯ (СУВОРО): Коли є всі дані — товар, колір, розмір, телефон ТА адреса доставки — тоді напиши 'ЗАМОВЛЕННЯ ПРИЙНЯТО' та подякуй. ЗАБОРОНЕНО писати 'ЗАМОВЛЕННЯ ПРИЙНЯТО', якщо клієнт ще не назвав адресу або телефон!\n"
-            "Пиши виключно українською мовою, лаконічно."
+            "1. Продавай ТІЛЬКИ товари з цього списку. Не вигадуй інші.\n"
+            "2. Якщо змінюють замовлення — напиши 'ЗАМОВЛЕННЯ ОНОВЛЕНО!' та деталі.\n"
+            "3. Якщо просять менеджера і підтвердили 'Так' — напиши 'ЗАПИТ НА МЕНЕДЖЕРА ПРИЙНЯТО'.\n"
+            "4. Коли є товар, колір, розмір, телефон та адреса — напиши 'ЗАМОВЛЕННЯ ПРИЙНЯТО'.\n"
+            "Пиши українською, коротко."
         )
 
-        # Передаем системный промпт и историю сообщений
         chat = model.start_chat(history=user_sessions[user_id][:-1])
-        
-        # Передаем системную инструкцию в сам запрос
-        full_prompt = f"[СИСТЕМНА ІНСТРУКЦІЯ]: {system_instruction}\n\nПовідомлення клієнта: {user_text}"
+        full_prompt = f"[ІНСТРУКЦІЯ]: {system_instruction}\n\nПовідомлення: {user_text}"
         
         response = chat.send_message(full_prompt)
         bot_response = response.text
@@ -103,12 +101,10 @@ async def handle_message(message):
 
     except Exception as e:
         logging.error(f"Ошибка API или сети: {e}")
-        user_sessions[user_id] = []
-        await message.answer("Ой, здається, сталася невеличка технічна помилка або я втомився. Давайте почнемо з чистого аркуша! Що вас цікавить?")
+        await message.answer("Забагато запитів за хвилину, я трохи втомився. Зачекайте хвилину і повторіть повідомлення.")
 
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main
+    asyncio.run(main())
