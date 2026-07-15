@@ -90,7 +90,7 @@ async def handle_message(message: aiogram_types.Message):
                     text=f"🔔 ЗМІНИ В ЗАМОВЛЕННІ / НОВИЙ ЗАПИТ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nЛог:\n{history_text}"
                 )
             
-        except Exception as e:
+except Exception as e:
         logging.error(f"Ошибка: {e}")
         # Очищаем память пользователя при ошибке, чтобы убрать "битый" контекст
         user_sessions[user_id] = [] 
