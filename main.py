@@ -90,9 +90,12 @@ async def handle_message(message: aiogram_types.Message):
                     text=f"🔔 ЗМІНИ В ЗАМОВЛЕННІ / НОВИЙ ЗАПИТ!\nКлієнт: @{message.from_user.username or 'без ніка'}\nID: {user_id}\n\nЛог:\n{history_text}"
                 )
             
-    except Exception as e:
+        except Exception as e:
         logging.error(f"Ошибка: {e}")
-        await message.answer("Вибачте, виникла технічна помилка.")
+        # Очищаем память пользователя при ошибке, чтобы убрать "битый" контекст
+        user_sessions[user_id] = [] 
+        await message.answer("Ой, здається, я заплутався. Давайте почнемо з чистого аркуша! Що вас цікавить з нашого асортименту?")
+    
 
 async def main():
     await dp.start_polling(bot)
